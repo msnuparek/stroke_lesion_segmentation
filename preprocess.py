@@ -10,7 +10,7 @@ from monai.data import DataLoader, Dataset, CacheDataset
 from monai.utils import set_determinism
 
 
-def prepare(prepare_dir, spatial_size=[128, 128, 128]):
+def prepare(prepare_dir, spatial_size=[156, 156, 156]):
 
     set_determinism(seed=0)
 
@@ -29,22 +29,22 @@ def prepare(prepare_dir, spatial_size=[128, 128, 128]):
                         [
                             LoadImaged(keys=["vol", "seg"]),
                             EnsureChannelFirstd(keys=["vol", "seg"]),
-                            Orientationd(keys=["vol", "seg"], axcodes='PLI'),
+                            Orientationd(keys=["vol", "seg"], axcodes='RAI'),
+                            RandFlipd(keys=["vol", "seg"], prob=0.5, spatial_axis=0),
                             RandFlipd(keys=["vol", "seg"], prob=0.5, spatial_axis=1),
-                            NormalizeIntensityd(keys=["vol", "seg"], nonzero=True, channel_wise=True),
-                            RandScaleIntensityd(keys=["vol", "seg"], factors=0.1, prob=1.0),
-                            RandShiftIntensityd(keys=["vol", "seg"], offsets=0.1, prob=1.0),
-                            Resized(keys=["vol", "seg"], spatial_size=spatial_size), 
+                            RandFlipd(keys=["vol", "seg"], prob=0.5, spatial_axis=2),
+                            NormalizeIntensityd(keys=["vol"], nonzero=True, channel_wise=True),
+                            Resized(keys=["vol", "seg"], spatial_size=spatial_size),
                             ToTensord(keys=["vol", "seg"])
                         ]
                     )
-
+    
     test_transforms = Compose(
         [
                             LoadImaged(keys=["vol", "seg"]),
                             EnsureChannelFirstd(keys=["vol", "seg"]),
-                            Orientationd(keys=["vol", "seg"], axcodes='PLI'),
-                            NormalizeIntensityd(keys=["vol", "seg"], nonzero=True, channel_wise=True),
+                            Orientationd(keys=["vol", "seg"], axcodes='RAI'),
+                            NormalizeIntensityd(keys=["vol"], nonzero=True, channel_wise=True),
                             Resized(keys=["vol", "seg"], spatial_size=spatial_size),
                             ToTensord(keys=["vol", "seg"])
 
