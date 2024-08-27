@@ -1,4 +1,5 @@
-import os
+# "os" library is not used, commented it for better performance
+# import os
 import tkinter as tk
 from tkinter import filedialog
 import numpy as np
@@ -13,6 +14,7 @@ from matplotlib.colors import ListedColormap
 import ants
 from antspynet.utilities import brain_extraction
 import nibabel as nib
+from platform import node
 
 class NiftiViewerApp:
     def __init__(self, root):
@@ -36,7 +38,8 @@ class NiftiViewerApp:
         
     def load_nifti(self):
         global file_path
-        file_path = filedialog.askopenfilename(filetypes=[("NIFTI files", "*.nii *.nii.gz")])
+        # Set initial directory to /
+        file_path = filedialog.askopenfilename(filetypes=[("NIFTI files", "*.nii *.nii.gz")], initialdir="/")
         if not file_path:
             return
 
@@ -80,9 +83,18 @@ class NiftiViewerApp:
         self.canvas.draw()
 
     def load_model(self):
+        pc_name = node()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = SegResNetDS(spatial_dims=3, in_channels=1, out_channels=2).to(device)
-        model.load_state_dict(torch.load("/mnt/d/results_SegResNet_200ep_280724_dice7818/best_metric_model.pth"))
+
+        # Set path to best model based on PC name
+        if "gentoo" in pc_name or "chatham" in pc_name or "emperor" in pc_name:
+            model.load_state_dict(torch.load("/dg6/burkot/stroke_lesion_segmentation/best_metric_model_SegResNet_200e.pth",
+                                             map_location=torch.device('cpu')))
+            # Also, I have some issues running inference on GPU, co I set map_location to CPU :'-(
+        else:
+            model.load_state_dict(torch.load("/mnt/d/results_SegResNet_200ep_280724_dice7818/best_metric_model.pth"))
+
         model.eval()
         return model, device
 
