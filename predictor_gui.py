@@ -42,7 +42,7 @@ class NiftiViewerApp:
         self.slider_axial.pack()
 
         # Sagittal slider
-        self.slider_sagittal = tk.Scale(root, from_=0, to=155, orient=tk.HORIZONTAL, label="Sagittal Slice", command=self.update_slices)
+        self.slider_sagittal = tk.Scale(root, from_=0, to=155, orient=tk.HORIZONTAL, label="Coronal Slice", command=self.update_slices)
         self.slider_sagittal.pack()
 
         # Create a 1x2 plot grid for axial and sagittal views
@@ -97,7 +97,7 @@ class NiftiViewerApp:
         sagittal_img = np.transpose(self.resized_img_data[0, :, sagittal_slice, :])  
         sagittal_img = np.fliplr(sagittal_img)  
         self.ax2.imshow(sagittal_img, cmap="gray")
-        self.ax2.set_title(f"Sagittal View (Slice {sagittal_slice})")
+        self.ax2.set_title(f"Coronal View (Slice {sagittal_slice})")
 
         # Update segmentation mask if available
         if self.segmentation_mask is not None:
