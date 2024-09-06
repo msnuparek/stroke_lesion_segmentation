@@ -3,12 +3,13 @@ import argparse
 import numpy as np
 import torch
 from monai.networks.nets import SegResNetDS
-from monai.transforms import Compose, LoadImage, EnsureChannelFirst, Orientation, Resize, NormalizeIntensity, ToTensor
+from monai.transforms import Resize, Compose, LoadImage, EnsureChannelFirst, Orientation, NormalizeIntensity, ToTensor
 from monai.inferers import sliding_window_inference
 from monai.transforms import Activations
 import ants
 from antspynet.utilities import brain_extraction
 import nibabel as nib
+from scipy.ndimage import zoom
 
 def load_model(model_weights_path, device):
     model = SegResNetDS(spatial_dims=3, in_channels=1, out_channels=2).to(device)
@@ -29,14 +30,17 @@ def perform_brain_extraction(file_path):
 
 def generate_segmentation(nifti_file_path, model, device):
     try:
+        # Perform brain extraction
         masked = perform_brain_extraction(nifti_file_path)
         if masked is None:
-            return None
+            return None, None
 
+        # Save the brain-extracted image temporarily
         masked_brain = ants.to_nibabel(masked)
         temp_file_path = './extracted.nii.gz'
         nib.save(masked_brain, temp_file_path)
 
+        # Define the transforms
         test_transforms = Compose([
             LoadImage(image_only=True),
             EnsureChannelFirst(),
@@ -46,6 +50,7 @@ def generate_segmentation(nifti_file_path, model, device):
             ToTensor()
         ])
 
+        # Apply the transforms
         image = test_transforms(temp_file_path)
         sw_batch_size = 2
         roi_size = (152, 152, 152)
@@ -59,19 +64,36 @@ def generate_segmentation(nifti_file_path, model, device):
             segmentation_mask = test_outputs.cpu().numpy()[0, 0]
 
             segmentation_mask_inverted = np.logical_not(segmentation_mask).astype(np.uint8)
-            return segmentation_mask_inverted
+            return segmentation_mask_inverted, masked_brain.shape
     except Exception as e:
         print(f"Error during segmentation: {e}")
+        return None, None
+
+def resample_mask_to_original_size(segmentation_mask, original_shape):
+    try:
+        current_shape = segmentation_mask.shape
+        zoom_factors = np.array(original_shape) / np.array(current_shape)
+        resampled_mask = zoom(segmentation_mask, zoom_factors, order=0)  # Nearest-neighbor interpolation
+        return resampled_mask
+    except Exception as e:
+        print(f"Error during resampling: {e}")
         return None
 
-def save_segmentation(segmentation_mask, save_folder, original_file_path, affine):
+def save_segmentation(segmentation_mask, save_folder, original_file_path, affine, original_shape):
     try:
+        # Resample the segmentation mask to the original image size
+        resampled_mask = resample_mask_to_original_size(segmentation_mask, original_shape)
+
+        if resampled_mask is None:
+            return
+
         # Construct the output file name
         base_name = os.path.basename(original_file_path).replace('.nii', '').replace('.gz', '')
         output_file_name = f"{base_name}_seg_mask.nii.gz"
         output_file_path = os.path.join(save_folder, output_file_name)
 
-        segmentation_img = nib.Nifti1Image(segmentation_mask, affine=affine)
+        # Save the resampled segmentation mask
+        segmentation_img = nib.Nifti1Image(resampled_mask, affine=affine)
         nib.save(segmentation_img, output_file_path)
         print(f"Segmentation mask saved to {output_file_path}")
     except Exception as e:
@@ -81,14 +103,16 @@ def main(nifti_file_path, save_folder, model_weights_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(model_weights_path, device)
 
-    # Load the original image to get the affine matrix
+    # Load the original image to get the affine matrix and shape
     original_image = nib.load(nifti_file_path)
     affine = original_image.affine
+    original_shape = original_image.shape
 
-    segmentation_mask = generate_segmentation(nifti_file_path, model, device)
+    # Generate segmentation
+    segmentation_mask, masked_shape = generate_segmentation(nifti_file_path, model, device)
 
-    if segmentation_mask is not None:
-        save_segmentation(segmentation_mask, save_folder, nifti_file_path, affine)
+    if segmentation_mask is not None and masked_shape is not None:
+        save_segmentation(segmentation_mask, save_folder, nifti_file_path, affine, original_shape)
     else:
         print("Segmentation failed.")
 
