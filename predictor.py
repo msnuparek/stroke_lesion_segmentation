@@ -44,7 +44,6 @@ def generate_segmentation(nifti_file_path, model, device):
         test_transforms = Compose([
             LoadImage(image_only=True),
             EnsureChannelFirst(),
-            Orientation(axcodes='RAI'),
             NormalizeIntensity(nonzero=True, channel_wise=True),
             Resize(spatial_size=[156, 156, 156]),
             ToTensor()
@@ -78,8 +77,18 @@ def resample_mask_to_original_size(segmentation_mask, original_shape):
     except Exception as e:
         print(f"Error during resampling: {e}")
         return None
+    
+  
+def adjust_orientation_to_inferior(orientation):
+    """
+    Adjust the given orientation to ensure the last axis is 'inferior'.
+    """
+    if len(orientation) != 3:
+        raise ValueError("Orientation must be a 3-character string")
+    
+    return orientation[:2] + 'I'
 
-def save_segmentation(segmentation_mask, save_folder, original_file_path, affine, original_shape):
+def save_segmentation(segmentation_mask, save_folder, original_file_path, affine, original_shape, original_orientation):
     try:
         # Resample the segmentation mask to the original image size
         resampled_mask = resample_mask_to_original_size(segmentation_mask, original_shape)
@@ -87,13 +96,22 @@ def save_segmentation(segmentation_mask, save_folder, original_file_path, affine
         if resampled_mask is None:
             return
 
+        # Convert the mask to ANTs image
+        ants_mask = ants.from_numpy(resampled_mask, origin=None, spacing=None, direction=None)
+
+        # Reorient the mask to the original orientation with 'inferior' as the last axis
+        ants_mask_original = ants_mask.reorient_image2(original_orientation)
+
+        # Convert back to numpy array
+        resampled_mask_original = ants_mask_original.numpy()
+
         # Construct the output file name
         base_name = os.path.basename(original_file_path).replace('.nii', '').replace('.gz', '')
         output_file_name = f"{base_name}_seg_mask.nii.gz"
         output_file_path = os.path.join(save_folder, output_file_name)
 
-        # Save the resampled segmentation mask
-        segmentation_img = nib.Nifti1Image(resampled_mask, affine=affine)
+        # Save the resampled and reoriented segmentation mask
+        segmentation_img = nib.Nifti1Image(resampled_mask_original, affine=affine)
         nib.save(segmentation_img, output_file_path)
         print(f"Segmentation mask saved to {output_file_path}")
     except Exception as e:
@@ -103,16 +121,23 @@ def main(nifti_file_path, save_folder, model_weights_path):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(model_weights_path, device)
 
-    # Load the original image to get the affine matrix and shape
+    # Load the original image to get the affine matrix, shape, and orientation
     original_image = nib.load(nifti_file_path)
     affine = original_image.affine
     original_shape = original_image.shape
+    
+    # Extract orientation from the original image and ensure inferior
+    original_ants_image = ants.image_read(nifti_file_path)
+    original_orientation = original_ants_image.orientation
+    adjusted_orientation = adjust_orientation_to_inferior(original_orientation)
+    print(f"Original image orientation: {original_orientation}")
+    print(f"Adjusted orientation: {adjusted_orientation}")
 
     # Generate segmentation
     segmentation_mask, masked_shape = generate_segmentation(nifti_file_path, model, device)
 
     if segmentation_mask is not None and masked_shape is not None:
-        save_segmentation(segmentation_mask, save_folder, nifti_file_path, affine, original_shape)
+        save_segmentation(segmentation_mask, save_folder, nifti_file_path, affine, original_shape, adjusted_orientation)
     else:
         print("Segmentation failed.")
 
